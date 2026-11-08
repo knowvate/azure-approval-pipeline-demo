@@ -38,7 +38,7 @@ Security scan ────────┘   plan → deploy   plan → ⏸ → d
 | Separate identity per environment, Contributor on its own resource group only | `bootstrap/` | The Development pipeline can't touch Production, even by mistake |
 | Read-only plan identity (custom role: `*/read` only) | `bootstrap/` | A plan can never change anything, so it can run before approval |
 | Deploy identity trusts only its GitHub environment (OIDC subject `…:environment:production`) | `bootstrap/` | No job can get Production credentials without passing the approval gate |
-| Required reviewers + "main only" branch policy | GitHub environment settings | Nothing reaches UAT/Production unapproved, or from an unmerged branch. Settings aren't YAML, so a PR can't remove them |
+| Required reviewers + "main only" branch policy, admin bypass off | GitHub environment settings | Nothing reaches UAT/Production unapproved, or from an unmerged branch, and admins can't skip the gate (GitHub allows admin bypass by default). Settings aren't YAML, so a PR can't remove them |
 | Separate Terraform state per environment, writable only by that environment's identities | `bootstrap/` | A Development run can't corrupt Production's state |
 | Saved plan applied | `deploy-environment.yml` | What's applied is what was approved; a stale plan is refused |
 | Build once, promote the artifact | `pipeline.yml` | Production runs the bytes that were tested in Development and UAT |
@@ -75,7 +75,8 @@ bootstrap/    One-time, applied locally by an Owner: resource groups, identities
    `PLAN_CLIENT_ID_DEV|UAT|PROD` from the bootstrap outputs.
 3. GitHub environments `development`, `uat`, `production`, each with a
    deployment branch policy of `main`. Add required reviewers to `uat` and
-   `production`. Each environment gets variables `AZURE_CLIENT_ID` (its
+   `production`, and untick "Allow administrators to bypass configured
+   protection rules" on both. Each environment gets variables `AZURE_CLIENT_ID` (its
    deploy identity) and `RESOURCE_GROUP`.
 
 ## Tearing it down
