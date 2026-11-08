@@ -1,0 +1,168 @@
+name: Build, test and deploy
+
+# One workflow, so GitHub draws the whole pipeline as one graph:
+#
+#   Lint ──────┐
+#   Unit tests ┴─▶ Build ─┐
+#   Terraform checks ─────┼─▶ Development ─▶ UAT ─▶ Production
+#   Security scan ────────┘   (plan, apply)   (plan, ⏸ approve, apply)
+#
+# Pull requests run only the checks and the build; deploys start from main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Nothing gets a token permission it isn't given per job below.
+permissions: {}
+
+# One deploy at a time. A newer push queues behind a run waiting for
+# approval rather than cancelling it; a newer PR push cancels a stale check.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || 'deploy-main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: ESLint
+        working-directory: app
+        run: |
+          npm ci
+          npm run lint
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.64.0
+      - name: TFLint
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # rate limit for plugin downloads
+        run: |
+          for dir in infra bootstrap; do
+            (cd "$dir" && tflint --init && tflint --format compact)
+          done
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - working-directory: app
+        run: |
+          npm ci
+          npm test
+
+  terraform-checks:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - name: terraform validate
+        run: |
+          for dir in infra bootstrap; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+
+  security:
+    name: Security scan (Checkov)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: bridgecrewio/checkov-action@c3e106d5f8f4253a6de5110efb41a080f83db294 # v12.3135.0
+        with:
+          directory: .
+          framework: terraform,github_actions
+          quiet: true
+          # Hard fail: a finding blocks the deploy. Deliberate exceptions are
+          # skipped inline next to the resource, each with its reason.
+          soft_fail: false
+
+  build:
+    name: Build
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build
+        working-directory: app
+        env:
+          BUILD_VERSION: ${{ github.sha }}
+        run: |
+          npm ci
+          npm run build
+          cd dist && zip -qr ../app.zip .
+      # Built once; every environment deploys this same zip.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-package
+          path: app/app.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  development:
+    name: Development
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [build, terraform-checks, security]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: development
+      plan_client_id_var: PLAN_CLIENT_ID_DEV
+
+  uat:
+    name: UAT
+    needs: development
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: uat
+      plan_client_id_var: PLAN_CLIENT_ID_UAT
+
+  production:
+    name: Production
+    needs: uat
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: production
+      plan_client_id_var: PLAN_CLIENT_ID_PROD

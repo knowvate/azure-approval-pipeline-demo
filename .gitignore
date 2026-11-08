@@ -1,0 +1,14 @@
+node_modules/
+app/dist/
+app/app.zip
+
+# Terraform: local state (bootstrap keeps its state locally), plans, caches
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+crash.log
+# bootstrap's subscription ID and OIDC prefix
+terraform.tfvars
