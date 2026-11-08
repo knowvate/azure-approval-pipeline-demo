@@ -12,6 +12,9 @@ safe without moving to separate subscriptions.
 
 Adapting this to your own repo? Start with [docs/BRIEF.md](docs/BRIEF.md):
 the goal, the properties to keep, and what to check first.
+[docs/PROMPT.md](docs/PROMPT.md) has a ready-made prompt for Claude, and
+[docs/approval-pipeline.mp4](docs/approval-pipeline.mp4) is a 2-minute
+walkthrough of a real run.
 
 ## The pipeline
 
