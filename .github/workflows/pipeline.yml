@@ -11,6 +11,8 @@ name: Build, test and deploy
 on:
   push:
     branches: [main]
+    # Docs-only changes don't need a deploy.
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
     branches: [main]
   workflow_dispatch:

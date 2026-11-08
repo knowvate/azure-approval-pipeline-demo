@@ -10,6 +10,9 @@ common real-world starting point, and on its own it isn't safe: a tag is a
 label, not a permission boundary. This repo shows how to make that setup
 safe without moving to separate subscriptions.
 
+Adapting this to your own repo? Start with [docs/BRIEF.md](docs/BRIEF.md):
+the goal, the properties to keep, and what to check first.
+
 ## The pipeline
 
 ```
